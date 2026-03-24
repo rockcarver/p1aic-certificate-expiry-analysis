@@ -32,7 +32,7 @@ var config = {
   serviceAccountJwk: 'only-to-be-resolved-from-esv', // the JWK for the service account, should be stored in ESV and referenced here, e.g. 'esv.pingps.service.account.jwk'
   scope: 'fr:am:* fr:idc:esv:read', // scope to use for access token when calling ESV, should have at least read access to secrets in ESV and realm config in AM
   envFqdn: 'openam-yyc-dev.forgeblocks.com', // fqdn of the environment, used for getting access token and calling ESV, e.g. 'openam-yyc-dev.forgeblocks.com'
-  logprefix: 'sandlog: Ping PS Certificate Expiry Checking System: ' // prefix to prepend to all log messages for easier tracing in logs
+  logprefix: 'pingpslog: Ping PS Certificate Expiry Checking System: ' // prefix to prepend to all log messages for easier tracing in logs
 };
 
 /**
