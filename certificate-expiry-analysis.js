@@ -30,7 +30,7 @@ var config = {
   warningDays: 10, // number of days before expiry to start sending warnings
   serviceAccountId: 'a7a656e2-db72-4324-b402-5b68dce6cab8', // service account client id to use for getting access token to call ESV and get secret values
   serviceAccountJwk: 'only-to-be-resolved-from-esv', // the JWK for the service account, should be stored in ESV and referenced here, e.g. 'esv.pingps.service.account.jwk'
-  scope: 'fr:am:* fr:idc:esv:*', // scope to use for access token when calling ESV, should have at least read access to secrets in ESV and realm config in AM
+  scope: 'fr:am:* fr:idc:esv:read', // scope to use for access token when calling ESV, should have at least read access to secrets in ESV and realm config in AM
   envFqdn: 'openam-yyc-dev.forgeblocks.com', // fqdn of the environment, used for getting access token and calling ESV, e.g. 'openam-yyc-dev.forgeblocks.com'
   logprefix: 'sandlog: Ping PS Certificate Expiry Checking System: ' // prefix to prepend to all log messages for easier tracing in logs
 };
@@ -249,11 +249,11 @@ function getAccessToken() {
 
         response = openidm.action('external/rest', 'call', params);
         if (response.code !== 200) {
-          log.debug('Unable to acquire Access Token. HTTP Result: {}', response.getStatus());
+          log.warn('Unable to acquire Access Token. HTTP Result: {}', response.getStatus());
           response = null;
         }
       } catch (e) {
-        log.debug('Failure calling access token endpoint: {} exception: {}', tokenEndpoint, e);
+        log.error('Failure calling access token endpoint: {} exception: ' + e, tokenEndpoint);
       }
     }
 
@@ -280,13 +280,21 @@ function getAccessToken() {
  * Builds an HTML table reporting the status of all analyzed certificates and emails it out.
  */
 function sendNotificationEmail(sidMapping) {
-  log.debug('sending notification email to {}', config.emailRecipients);
+  var totalCertsEvaluated = 0;
+  var totalCertsExpiringSoon = 0;
+  var totalCertsExpired = 0;
+
+  log.info('sending notification email to {}', config.emailRecipients);
   try {
     var rows = [];
     for (var sid in sidMapping) {
       var s = sidMapping[sid];
       if (s.certificates) {
         for (var cert of s.certificates) {
+          totalCertsEvaluated++;
+          if (cert.status === -1) totalCertsExpired++;
+          else if (cert.status > 0) totalCertsExpiringSoon++;
+
           log.debug('cert: {}', cert);
           if (config.onlyIncludeProblematicCertsInEmail && cert.status === 0) {
             continue; // skip certs that are not expired or expiring soon if config is set to only include problematic certs
@@ -309,12 +317,16 @@ function sendNotificationEmail(sidMapping) {
         }
       }
     }
+    log.info('Total certs evaluated: {}, Expired certs: {}, Expiring soon certs: {}', totalCertsEvaluated, totalCertsExpired, totalCertsExpiringSoon);
 
     emailParams = {
       object: {
         title: 'Certificate Expiry Check Report for ' + config.envFqdn,
         env: config.envFqdn,
         onlyIssues: config.onlyIncludeProblematicCertsInEmail,
+        totalCertsEvaluated: totalCertsEvaluated,
+        totalCertsExpired: totalCertsExpired,
+        totalCertsExpiringSoon: totalCertsExpiringSoon,
         rows: rows
       },
       templateName: config.emailTemplate,
@@ -433,19 +445,24 @@ function getSamlEntityConfigurationData(entity, token) {
  * Exports the raw XML metadata for a specific SAML entity ID.
  */
 function getSamlEntityMetadata(entityId, token) {
-  var params = {
-    url: `https://${config.envFqdn}/am/ExportSamlMetadata?entityid=${entityId}&realm=/alpha`,
-    method: 'GET',
-    authenticate: {
-      type: 'bearer',
-      token: token
+  try {
+    var params = {
+      url: `https://${config.envFqdn}/am/ExportSamlMetadata?entityid=${entityId}&realm=/alpha`,
+      method: 'GET',
+      authenticate: {
+        type: 'bearer',
+        token: token
+      }
+    };
+    var metadataRet = openidm.action('external/rest', 'call', params);
+    if (metadataRet && metadataRet.body) {
+      return metadataRet.body;
     }
-  };
-  var metadataRet = openidm.action('external/rest', 'call', params);
-  if (metadataRet && metadataRet.body) {
-    return metadataRet.body;
+    return null;
+  } catch (e) {
+    log.error('Error getting metadata for entity {}: {}', entityId, e);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -532,8 +549,8 @@ function getFullSecretIdsForSamlEntity(entitySecretId, entity) {
   // Step 3: Fetch certificate payloads and evaluate them
   for (var sid in sidMapping) {
     var esvSecretValue = identityServer.getProperty(sidMapping[sid].esvSecretId.replace(/-/g, '.'));
+    sidMapping[sid].certificates = [];
     if (esvSecretValue && esvSecretValue.indexOf('-----BEGIN CERTIFICATE-----') !== -1) {
-      sidMapping[sid].certificates = [];
       var certs = extractIndividualCertificatesFromPemString(esvSecretValue);
       log.debug('found {} certs for secret id {} with esv secret {}, checking expiry', certs.length, sid, sidMapping[sid].esvSecretId);
 
@@ -760,6 +777,9 @@ function getFullSecretIdsForSamlEntity(entitySecretId, entity) {
       </div>
       <h1 id="certificatecheckreport">{{object.title}}</h1>
       <p>Ping AIC Env: {{object.env}}</p>
+      <p>Total Certificates Evaluated: {{object.totalCertsEvaluated}}</p>
+      <p>Total Expired Certificates: {{object.totalCertsExpired}}</p>
+      <p>Total Expiring Soon Certificates: {{object.totalCertsExpiringSoon}}</p>
       {{#if object.onlyIssues}}
         <div class="note-box">Note: Only showing expired or expiring certificates</div>
       {{/if}}
