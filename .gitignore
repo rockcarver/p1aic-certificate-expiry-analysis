@@ -1,0 +1,15 @@
+# Ignore all files ending with .log
+*.log
+
+*.jwk
+test*
+
+# Ignore all files in the 'build' directory
+/build/
+
+# Ignore the 'venv' directory commonly used for Python virtual environments
+.venv/
+
+# Ignore specific operating system temporary files
+.DS_Store
+Thumbs.db

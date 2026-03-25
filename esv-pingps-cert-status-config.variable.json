@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "exportDate": "2026-03-24T17:19:17.228Z",
+    "exportTool": "frodo",
+    "exportToolVersion": "v4.0.0-30 [v24.13.0]",
+    "exportedBy": "sandeep.chaturvedi@forgerock.com",
+    "origin": "https://openam-yyc-dev.forgeblocks.com/am",
+    "originAmVersion": "9.0.0"
+  },
+  "variable": {
+    "esv-pingps-cert-status-config": {
+      "_id": "esv-pingps-cert-status-config",
+      "description": "",
+      "expressionType": "object",
+      "loaded": true,
+      "value": "{\n  \"warningDays\": 10,\n  \"onlySendEmailIfActionNeeded\": false,\n  \"onlyIncludeProblematicCertsInEmail\": true,\n  \"emailTemplate\": \"pingPsCertificateStatusCheck\",\n  \"emailRecipients\": \"sandeep.chaturvedi@pingidentity.com\",\n  \"emailFromAddress\": \"sandeep.chaturvedi@pingidentity.com\",\n  \"serviceAccountId\": \"a7a656e2-db72-4324-b402-5b68dce6cab8\",\n  \"serviceAccountJwk\": \"esv.certexp.service.account.jwk\",\n  \"scope\": \"fr:am:* fr:idc:esv:*\",\n  \"envFqdn\": \"openam-yyc-dev.forgeblocks.com\",\n  \"logprefix\": \"sandlog: Ping PS Certificate Expiry Checking System: \"\n}"
+    }
+  }
+}

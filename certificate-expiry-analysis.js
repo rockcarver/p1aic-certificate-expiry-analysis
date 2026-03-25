@@ -1,20 +1,25 @@
 /**
  * Certificate Expiry Analysis Script for Ping Identity's PS Team
  *
- * This script is designed to run in a ForgeRock Identity Platform environment (AM or IDM) and performs the following functions:
+ * This script is designed to run in a P1AIC environment and performs the following functions:
  * 1. Fetches all secrets from the Google Secret Manager Secret Store Provider and identifies those that contain PEM-encoded certificates.
  * 2. Parses the certificates to extract their attributes (Subject, Issuer, NotBefore, NotAfter, Serial Number).
  * 3. Checks the expiry status of each certificate against the current date and a configurable warning threshold (e.g., 10 days).
- * 4. Correlates certificates to their associated SAML entities (IDPs or SPs) based on the realm configuration, particularly for hosted providers where secret IDs are directly referenced.
- * 5. Generates a report of all certificates, highlighting those that are expired or expiring soon, and sends a notification email to configured recipients with the details.
- * The script uses a configuration object that can be overridden by an ESV JSON object for flexibility across different environments. It also includes robust logging for traceability and error handling.
- * Note: This script assumes that the service account used for authentication has the necessary permissions to read secrets from ESV, access realm configuration, and send emails through IDM's email service.
+ * 4. Correlates certificates to their associated SAML entities (IDPs or SPs) based on the realm configuration, particularly for 
+ * hosted providers where secret IDs are directly referenced.
+ * 5. Generates a report of all certificates, highlighting those that are expired or expiring soon, and sends a notification email to 
+ * configured recipients with the details.
+ * The script uses a configuration object that can be overridden by an ESV JSON object for flexibility across different environments. 
+ * It also includes robust logging for traceability and error handling.
+ * Note: This script assumes that the service account used for authentication has the necessary permissions to read secrets from ESV, 
+ * access realm configuration, and send emails through P1AIC email service.
  * Author: Sandeep Chaturvedi (sandeep.chaturvedi@pingidentity.com)
  */
 
 /**
  * ESV key where the JSON configuration object is stored
- * The JSON object should have the same structure as the default config object defined below, and can override any of the default values. This allows for flexible configuration without modifying the script code.
+ * The JSON object should have the same structure as the default config object defined below, and can override any of the default values. 
+ * This allows for flexible configuration without modifying the script code.
  */
 var configEsv = 'esv.pingps.cert.status.config';
 
@@ -22,16 +27,22 @@ var configEsv = 'esv.pingps.cert.status.config';
  * Default configuration object defining the behavior of the certificate expiry check.
  */
 var config = {
-  onlySendEmailIfActionNeeded: false, // if true, only sends email if there are certs that are expired or expiring soon, otherwise sends email every time the script runs with the status of all certs
-  onlyIncludeProblematicCertsInEmail: false, // if true, only includes certs that are expired or expiring soon in the notification email, otherwise includes all certs in the email
-  emailTemplate: 'certificateStatusCheck', // the name of the email template to use when sending notifications, if using IDM's email service with templates. If not using templates, this can be null and the HTML can be constructed in the body field of the emailParams in sendNotificationEmail function
-  emailRecipients: 'sandeep.chaturvedi@pingidentity.com', //'esv.pingpscertexp.notification.email.recipients', // comma separated list of email addresses to send cert expiry warnings to
-  emailFromAddress: 'sandeep.chaturvedi@pingidentity.com', //'esv.pingpscertexp.notification.email.from', // email address to use in the from field when sending cert expiry warnings
+  onlySendEmailIfActionNeeded: false, // if true, only sends email if there are certs that are expired or expiring soon, 
+  // otherwise sends email every time the script runs with the status of all certs
+  onlyIncludeProblematicCertsInEmail: false, // if true, only includes certs that are expired or expiring soon in 
+  // the notification email, otherwise includes all certs in the email
+  emailTemplate: 'pingPsCertificateStatusCheck', // the name of the email template to use when sending notifications
+  emailRecipients: 'sandeep.chaturvedi@pingidentity.com', // comma separated list of email addresses to send cert expiry warnings to
+  emailFromAddress: 'sandeep.chaturvedi@pingidentity.com', // email address to use in the from field when sending cert expiry warnings
   warningDays: 10, // number of days before expiry to start sending warnings
-  serviceAccountId: 'a7a656e2-db72-4324-b402-5b68dce6cab8', // service account client id to use for getting access token to call ESV and get secret values
-  serviceAccountJwk: 'only-to-be-resolved-from-esv', // the JWK for the service account, should be stored in ESV and referenced here, e.g. 'esv.pingps.service.account.jwk'
-  scope: 'fr:am:* fr:idc:esv:read', // scope to use for access token when calling ESV, should have at least read access to secrets in ESV and realm config in AM
-  envFqdn: 'openam-yyc-dev.forgeblocks.com', // fqdn of the environment, used for getting access token and calling ESV, e.g. 'openam-yyc-dev.forgeblocks.com'
+  serviceAccountId: 'a7a656e2-db72-4324-b402-5b68dce6cab8', // service account client id to use for getting access token to call 
+  // ESV and get secret values
+  serviceAccountJwk: 'only-to-be-resolved-from-esv', // the JWK for the service account, should be stored in ESV and 
+  // referenced here, e.g. 'esv.pingps.service.account.jwk'
+  scope: 'fr:am:* fr:idc:esv:read', // scope to use for access token when calling ESV, should have at least read access to 
+  // secrets in ESV and realm config in AM
+  envFqdn: 'openam-yyc-dev.forgeblocks.com', // fqdn of the environment, used for getting access token and calling ESV, 
+  // e.g. 'openam-yyc-dev.forgeblocks.com'
   logprefix: 'pingpslog: Ping PS Certificate Expiry Checking System: ' // prefix to prepend to all log messages for easier tracing in logs
 };
 
@@ -335,7 +346,7 @@ function sendNotificationEmail(sidMapping) {
       subject: 'Certificate Expiry Check Report for ' + config.envFqdn
     };
 
-    // Use IDM's external email service to send the payload
+    // Use P1AIC external email service to send the payload
     openidm.action('external/email', 'sendTemplate', emailParams);
     log.info('SENT notification email to {}', emailParams.to);
   } catch (e) {
