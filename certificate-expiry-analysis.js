@@ -5,20 +5,20 @@
  * 1. Fetches all secrets from the Google Secret Manager Secret Store Provider and identifies those that contain PEM-encoded certificates.
  * 2. Parses the certificates to extract their attributes (Subject, Issuer, NotBefore, NotAfter, Serial Number).
  * 3. Checks the expiry status of each certificate against the current date and a configurable warning threshold (e.g., 10 days).
- * 4. Correlates certificates to their associated SAML entities (IDPs or SPs) based on the realm configuration, particularly for 
+ * 4. Correlates certificates to their associated SAML entities (IDPs or SPs) based on the realm configuration, particularly for
  * hosted providers where secret IDs are directly referenced.
- * 5. Generates a report of all certificates, highlighting those that are expired or expiring soon, and sends a notification email to 
+ * 5. Generates a report of all certificates, highlighting those that are expired or expiring soon, and sends a notification email to
  * configured recipients with the details.
- * The script uses a configuration object that can be overridden by an ESV JSON object for flexibility across different environments. 
+ * The script uses a configuration object that can be overridden by an ESV JSON object for flexibility across different environments.
  * It also includes robust logging for traceability and error handling.
- * Note: This script assumes that the service account used for authentication has the necessary permissions to read secrets from ESV, 
+ * Note: This script assumes that the service account used for authentication has the necessary permissions to read secrets from ESV,
  * access realm configuration, and send emails through P1AIC email service.
  * Author: Sandeep Chaturvedi (sandeep.chaturvedi@pingidentity.com)
  */
 
 /**
  * ESV key where the JSON configuration object is stored
- * The JSON object should have the same structure as the default config object defined below, and can override any of the default values. 
+ * The JSON object should have the same structure as the default config object defined below, and can override any of the default values.
  * This allows for flexible configuration without modifying the script code.
  */
 var configEsv = 'esv.pingps.cert.status.config';
@@ -27,21 +27,21 @@ var configEsv = 'esv.pingps.cert.status.config';
  * Default configuration object defining the behavior of the certificate expiry check.
  */
 var config = {
-  onlySendEmailIfActionNeeded: false, // if true, only sends email if there are certs that are expired or expiring soon, 
+  onlySendEmailIfActionNeeded: false, // if true, only sends email if there are certs that are expired or expiring soon,
   // otherwise sends email every time the script runs with the status of all certs
-  onlyIncludeProblematicCertsInEmail: false, // if true, only includes certs that are expired or expiring soon in 
+  onlyIncludeProblematicCertsInEmail: false, // if true, only includes certs that are expired or expiring soon in
   // the notification email, otherwise includes all certs in the email
   emailTemplate: 'pingPsCertificateStatusCheck', // the name of the email template to use when sending notifications
   emailRecipients: 'sandeep.chaturvedi@pingidentity.com', // comma separated list of email addresses to send cert expiry warnings to
   emailFromAddress: 'sandeep.chaturvedi@pingidentity.com', // email address to use in the from field when sending cert expiry warnings
   warningDays: 10, // number of days before expiry to start sending warnings
-  serviceAccountId: 'a7a656e2-db72-4324-b402-5b68dce6cab8', // service account client id to use for getting access token to call 
+  serviceAccountId: 'a7a656e2-db72-4324-b402-5b68dce6cab8', // service account client id to use for getting access token to call
   // ESV and get secret values
-  serviceAccountJwk: 'only-to-be-resolved-from-esv', // the JWK for the service account, should be stored in ESV and 
+  serviceAccountJwk: 'only-to-be-resolved-from-esv', // the JWK for the service account, should be stored in ESV and
   // referenced here, e.g. 'esv.pingps.service.account.jwk'
-  scope: 'fr:am:* fr:idc:esv:read', // scope to use for access token when calling ESV, should have at least read access to 
+  scope: 'fr:am:* fr:idc:esv:read', // scope to use for access token when calling ESV, should have at least read access to
   // secrets in ESV and realm config in AM
-  envFqdn: 'openam-yyc-dev.forgeblocks.com', // fqdn of the environment, used for getting access token and calling ESV, 
+  envFqdn: 'openam-yyc-dev.forgeblocks.com', // fqdn of the environment, used for getting access token and calling ESV,
   // e.g. 'openam-yyc-dev.forgeblocks.com'
   logprefix: 'pingpslog: Ping PS Certificate Expiry Checking System: ' // prefix to prepend to all log messages for easier tracing in logs
 };
@@ -143,25 +143,31 @@ function getAllSecretIds(token) {
  * Returns a dictionary keyed by secretId.
  */
 function getAllSecretIdToEsvMappings(token) {
-  log.debug('getting all secret id to esv mappings, token: {}', token);
-  var params = {
-    url: `https://${config.envFqdn}/am/json/realms/root/realms/alpha/realm-config/secrets/stores/GoogleSecretManagerSecretStoreProvider/ESV/mappings?_queryFilter=true`,
-    method: 'GET',
-    authenticate: {
-      type: 'bearer',
-      token: token
+  try {
+    log.debug('getting all secret id to esv mappings, token: {}', token);
+    var params = {
+      url: `https://${config.envFqdn}/am/json/realms/root/realms/alpha/realm-config/secrets/stores/GoogleSecretManagerSecretStoreProvider/ESV/mappings?_queryFilter=true`,
+      method: 'GET',
+      authenticate: {
+        type: 'bearer',
+        token: token
+      }
+    };
+    var sidMapping = {};
+    var sidMappingRet = openidm.action('external/rest', 'call', params);
+    if (sidMappingRet.resultCount > 0) {
+      log.info('found {} secret id to esv mapping entries', sidMappingRet.resultCount);
+      for (var s of sidMappingRet.result) {
+        log.debug('secret id to esv mapping: {} -> {}', s.secretId, s.aliases[0]);
+        sidMapping[s.secretId] = s.aliases[0].replace(/-/g, '.');
+      }
+      return sidMapping;
     }
-  };
-  var sidMapping = {};
-  var sidMappingRet = openidm.action('external/rest', 'call', params);
-  if (sidMappingRet.resultCount > 0) {
-    for (var s of sidMappingRet.result) {
-      log.debug('secret id to esv mapping: {} -> {}', s.secretId, s.aliases[0]);
-      sidMapping[s.secretId] = { esvSecretId: s.aliases[0] };
-    }
-    return sidMapping;
+    return null;
+  } catch (e) {
+    log.error('Error getting secret id to esv mappings: {}', e);
+    return null;
   }
-  return null;
 }
 
 /**
@@ -290,7 +296,7 @@ function getAccessToken() {
 /**
  * Builds an HTML table reporting the status of all analyzed certificates and emails it out.
  */
-function sendNotificationEmail(sidMapping) {
+function sendNotificationEmail(allCerts) {
   var totalCertsEvaluated = 0;
   var totalCertsExpiringSoon = 0;
   var totalCertsExpired = 0;
@@ -298,35 +304,27 @@ function sendNotificationEmail(sidMapping) {
   log.info('sending notification email to {}', config.emailRecipients);
   try {
     var rows = [];
-    for (var sid in sidMapping) {
-      var s = sidMapping[sid];
-      if (s.certificates) {
-        for (var cert of s.certificates) {
-          totalCertsEvaluated++;
-          if (cert.status === -1) totalCertsExpired++;
-          else if (cert.status > 0) totalCertsExpiringSoon++;
-
-          log.debug('cert: {}', cert);
-          if (config.onlyIncludeProblematicCertsInEmail && cert.status === 0) {
-            continue; // skip certs that are not expired or expiring soon if config is set to only include problematic certs
-          }
-          // Status -1 = Expired, Status > 0 = Expiring Soon, Otherwise = OK
-          var row = {
-            expired: cert.status === -1 ? true : false,
-            expiringSoon: cert.status > 0 ? true : false,
-            expiryDays: cert.status > 0 ? cert.status.toFixed(2) : null,
-            esvSecretId: s.esvSecretId,
-            subject: cert.subject,
-            issuer: cert.issuer,
-            serial: cert.serial,
-            expires: cert.notAfter,
-            samlEntity: s.samlEntity || 'N/A',
-            type: s.type || 'N/A'
-          };
-          log.debug('row: {}', row);
-          rows.push(row);
-        }
+    for (var c in allCerts) {
+      var cert = allCerts[c];
+      totalCertsEvaluated++;
+      if (cert.status === -1) totalCertsExpired++;
+      else if (cert.status > 0) totalCertsExpiringSoon++;
+      if (config.onlyIncludeProblematicCertsInEmail && cert.status === 0) {
+        continue; // skip certs that are not expired or expiring soon if config is set to only include problematic certs
       }
+      var row = {
+        expired: cert.status === -1 ? true : false,
+        expiringSoon: cert.status > 0 ? true : false,
+        expiryDays: cert.status > 0 ? cert.status : null,
+        esvSecretId: Object.keys(cert.esvs || {}).join(', '),
+        subject: cert.subject,
+        issuer: cert.issuer,
+        serial: cert.serial,
+        expires: cert.notAfter,
+        samlEntities: cert.samlEntity ? cert.samlEntity.map((e) => `[${e.id} ${e.type} (${e.use})]`).join('; ') : 'N/A'
+      };
+      log.debug('row: {}', row);
+      rows.push(row);
     }
     log.info('Total certs evaluated: {}, Expired certs: {}, Expiring soon certs: {}', totalCertsEvaluated, totalCertsExpired, totalCertsExpiringSoon);
 
@@ -357,9 +355,9 @@ function sendNotificationEmail(sidMapping) {
 /**
  * Retrieves all SAML 2.0 entity configurations (hosted and remote) from the realm.
  */
-function getAllSamlEntities(token) {
+function getRealmSamlEntities(token, realm) {
   var params = {
-    url: `https://${config.envFqdn}/am/json/realms/root/realms/alpha/realm-config/saml2?_queryFilter=true&_pageSize=10000`,
+    url: `https://${config.envFqdn}/am/json/realms/root/realms/${realm}/realm-config/saml2?_queryFilter=true&_pageSize=10000`,
     method: 'GET',
     authenticate: {
       type: 'bearer',
@@ -368,6 +366,15 @@ function getAllSamlEntities(token) {
   };
   var entitiesRet = openidm.action('external/rest', 'call', params);
   return entitiesRet.result || [];
+}
+
+/**
+ * Combines hosted and remote SAML entities from alpha and bravo realms into a single list for processing.
+ */
+function getAllSamlEntities(token) {
+  var alphaEntities = getRealmSamlEntities(token, 'alpha');
+  var bravoEntities = getRealmSamlEntities(token, 'bravo');
+  return alphaEntities.concat(bravoEntities);
 }
 
 /**
@@ -440,16 +447,21 @@ function getEsvSecretValues(secrets) {
  * Retrieves the deep configuration data for a specific SAML entity (e.g., IDP or SP configuration).
  */
 function getSamlEntityConfigurationData(entity, token) {
-  var params = {
-    url: `https://${config.envFqdn}/am/json/realms/root/realms/alpha/realm-config/saml2/${entity.location}/${entity._id}`,
-    method: 'GET',
-    authenticate: {
-      type: 'bearer',
-      token: token
-    }
-  };
-  var entityRet = openidm.action('external/rest', 'call', params);
-  return entityRet || null;
+  try {
+    var params = {
+      url: `https://${config.envFqdn}/am/json/realms/root/realms/alpha/realm-config/saml2/${entity.location}/${entity._id}`,
+      method: 'GET',
+      authenticate: {
+        type: 'bearer',
+        token: token
+      }
+    };
+    var entityRet = openidm.action('external/rest', 'call', params);
+    return entityRet || null;
+  } catch (e) {
+    log.error('Error getting configuration data for entity {}: {}', entity.entityId, e);
+    return null;
+  }
 }
 
 /**
@@ -528,14 +540,6 @@ function getEsvSecretList(token) {
 }
 
 /**
- * Constructs the standard set of secret IDs (signing, encryption, mtls) associated with a SAML entity secret identifier.
- */
-function getFullSecretIdsForSamlEntity(entitySecretId, entity) {
-  var fullIds = [`am.applications.federation.entity.providers.saml2.${entitySecretId}.signing`, `am.applications.federation.entity.providers.saml2.${entitySecretId}.encryption`, `am.applications.federation.entity.providers.saml2.${entitySecretId}.mtls`];
-  return fullIds;
-}
-
-/**
  * Main Execution Block (IIFE - Immediately Invoked Function Expression)
  * Coordinates the fetching of secrets, checking cert expiry, matching to SAML entities, and triggering notifications.
  */
@@ -557,133 +561,70 @@ function getFullSecretIdsForSamlEntity(entitySecretId, entity) {
   // Step 2: Get all mappings of logical Secret IDs -> ESVs
   var sidMapping = getAllSecretIdToEsvMappings(bearerToken);
 
-  // Step 3: Fetch certificate payloads and evaluate them
-  for (var sid in sidMapping) {
-    var esvSecretValue = identityServer.getProperty(sidMapping[sid].esvSecretId.replace(/-/g, '.'));
-    sidMapping[sid].certificates = [];
-    if (esvSecretValue && esvSecretValue.indexOf('-----BEGIN CERTIFICATE-----') !== -1) {
-      var certs = extractIndividualCertificatesFromPemString(esvSecretValue);
-      log.debug('found {} certs for secret id {} with esv secret {}, checking expiry', certs.length, sid, sidMapping[sid].esvSecretId);
-
-      for (var cert of certs) {
-        // log.debug('cert value: {}', cert);
-        var certData = getCertificateAttributes(cert);
-        log.debug('checking cert with subject {}', certData.subject);
-
-        // Check expiry for remote certs
-        if (certData.notAfter.getTime() - now < config.warningDays * 24 * 60 * 60 * 1000) {
-          if (certData.notAfter.getTime() < now) {
-            certData.status = -1; // expired
-            reportableCertsFound = true;
-            log.warn('cert "{}" expired on {}', certData.subject, certData.notAfter);
-          } else {
-            certData.status = (certData.notAfter.getTime() - now) / (1000 * 60 * 60 * 24); // days until expiry
-            reportableCertsFound = true;
-            log.warn('cert "{}" expiring on {}', certData.subject, certData.notAfter);
-          }
-        } else {
-          certData.status = 0; // ok
-          log.info('cert "{}": cert OK', certData.subject);
-        }
-        sidMapping[sid].certificates.push(certData);
-      }
-    } else {
-      log.info('ESV secret {} has no certificates', sidMapping[sid].esvSecretId);
-    }
-  }
-
+  var allSamlCerts = {}; // List to hold all certs found in SAML metadata for reporting purposes
   var reportableCertsFound = false;
 
-  // Step 4: Map evaluated certificates to their corresponding SAML entities
-  log.debug('mapping evaluated certs to saml entities, getting entities...');
   var samlEntities = getAllSamlEntities(bearerToken);
+  log.info('found {} saml entities', samlEntities.length);
   for (var e of samlEntities) {
     var entityData = getSamlEntityConfigurationData(e, bearerToken);
     log.debug('saml entity: {}', e);
 
-    // Handle Hosted Providers (Extracts their configured Secret IDs)
-    if (e.location === 'hosted') {
-      if (typeof entityData[e.roles[0]].assertionContent.signingAndEncryption.secretIdAndAlgorithms.secretIdIdentifier !== 'undefined' && entityData[e.roles[0]].assertionContent.signingAndEncryption.secretIdAndAlgorithms.secretIdIdentifier) {
+    var metadata = getSamlEntityMetadata(e.entityId, bearerToken);
+    if (!metadata) {
+      log.debug('No metadata found for entity {}, skipping cert mapping for this entity', e.entityId);
+      continue;
+    }
+    var metadataCerts = parseSamlMetadataXml(metadata);
+    var certData = null;
+    log.info('found {} certs in metadata for entity {}', metadataCerts.length, e.entityId);
+
+    for (var mc of metadataCerts) {
+      certData = getCertificateAttributes(mc.pem);
+      if (
+        typeof entityData[e.roles[0]].assertionContent.signingAndEncryption.secretIdAndAlgorithms.secretIdIdentifier !== 'undefined' && 
+        entityData[e.roles[0]].assertionContent.signingAndEncryption.secretIdAndAlgorithms.secretIdIdentifier) {
         var entitySecretId = entityData[e.roles[0]].assertionContent.signingAndEncryption.secretIdAndAlgorithms.secretIdIdentifier;
-        var ids = getFullSecretIdsForSamlEntity(entitySecretId, e);
-
-        for (id of ids) {
-          if (sidMapping[id]) {
-            log.debug('found secret id "{}" for entity "{}" with mapped esv secret "{}"', id, e.entityId, sidMapping[id].esvSecretId);
-            sidMapping[id].samlEntity = e.entityId;
-            sidMapping[id].type = `SAML hosted ${e.roles[0]}`;
-
-            // Check expiry for hosted certs
-            sidMapping[id].certificates.forEach((cert) => {
-              log.debug('checking cert with subject {} and expiry {} for entity {}', cert.subject, cert.notAfter, e.entityId);
-              // Compare timestamp against warning days (converted to ms)
-              if (cert.notAfter.getTime() - now < config.warningDays * 24 * 60 * 60 * 1000) {
-                if (cert.notAfter.getTime() < now) {
-                  cert.status = -1; // expired
-                  reportableCertsFound = true;
-                  log.warn('cert "{}" expired on {}', cert.subject, cert.notAfter);
-                } else {
-                  cert.status = (cert.notAfter.getTime() - now) / (1000 * 60 * 60 * 24); // days until expiry
-                  reportableCertsFound = true;
-                  log.warn('cert "{}" expiring on {}', cert.subject, cert.notAfter);
-                }
-              } else {
-                cert.status = 0; // ok
-                log.info('cert "{}": cert OK', cert.subject);
-              }
-            });
-          } else {
-            log.debug('secret id {} for entity {} not found in mappings', entitySecretId, e.entityId);
-          }
-        }
-      } else {
-        log.info('hosted entity {} - no secret ids', e.entityId);
+        certData.esvs = {};
+        if (sidMapping[`am.applications.federation.entity.providers.saml2.${entitySecretId}.signing`]) 
+          certData.esvs[sidMapping[`am.applications.federation.entity.providers.saml2.${entitySecretId}.signing`]] = true;
+        if (sidMapping[`am.applications.federation.entity.providers.saml2.${entitySecretId}.encryption`]) 
+          certData.esvs[sidMapping[`am.applications.federation.entity.providers.saml2.${entitySecretId}.encryption`]] = true;
+        if (sidMapping[`am.applications.federation.entity.providers.saml2.${entitySecretId}.mtls`]) 
+          certData.esvs[sidMapping[`am.applications.federation.entity.providers.saml2.${entitySecretId}.mtls`]] = true;
       }
-    } else {
-      // Handle Remote Providers (Certs are often in their Metadata rather than ESVs)
-      var metadata = getSamlEntityMetadata(e.entityId, bearerToken);
-      if (metadata) {
-        sidMapping[e.entityId] = {
-          esvSecretId: 'N/A',
-          type: `SAML remote ${e.roles[0]}`,
-          samlEntity: e.entityId,
-          certificates: []
-        };
-
-        var metadataCerts = parseSamlMetadataXml(metadata);
-        log.debug('found {} certs in metadata for entity {}', metadataCerts.length, e.entityId);
-
-        for (var mc of metadataCerts) {
-          var certData = getCertificateAttributes(mc.pem);
-          // sidMapping[e.entityId].certificates.push(certData);
-          log.debug('checking cert with subject {} and expiry {} for entity {}', certData.subject, certData.notAfter, e.entityId);
-
-          // Check expiry for remote certs
-          if (certData.notAfter.getTime() - now < config.warningDays * 24 * 60 * 60 * 1000) {
-            if (certData.notAfter.getTime() < now) {
-              certData.status = -1; // expired
-              reportableCertsFound = true;
-              log.warn('cert "{}" expired on {}', certData.subject, certData.notAfter);
-            } else {
-              certData.status = (certData.notAfter.getTime() - now) / (1000 * 60 * 60 * 24); // days until expiry
-              reportableCertsFound = true;
-              log.warn('cert "{}" expiring on {}', certData.subject, certData.notAfter);
-            }
-          } else {
-            certData.status = 0; // ok
-            log.info('cert "{}": cert OK', certData.subject);
-          }
-          sidMapping[e.entityId].certificates.push(certData);
+      if (certData.notAfter.getTime() - now < config.warningDays * 24 * 60 * 60 * 1000) {
+        if (certData.notAfter.getTime() < now) {
+          certData.status = -1; // expired
+          reportableCertsFound = true;
+          log.warn('cert "{}" expired on {}', certData.subject, certData.notAfter);
+        } else {
+          certData.status = Math.round((certData.notAfter.getTime() - now) / (1000 * 60 * 60 * 24)); // days until expiry
+          reportableCertsFound = true;
+          log.warn('cert "{}" expiring on {}', certData.subject, certData.notAfter);
         }
       } else {
-        log.debug('Remote entity {}, no metadata', e.entityId);
+        certData.status = 0; // ok
+        log.info('cert "{}": cert OK', certData.subject);
+      }
+
+      certData.samlEntity = [{ id: `${e.entityId}`, use: `${mc.use}`, type: `SAML ${e.location} ${e.roles[0]}` }];
+      if (allSamlCerts[`${certData.subject}|${certData.issuer}|${certData.serial}`]) {
+        log.info('Found duplicate cert for subject {} and issuer {}, appending entity {} to existing entry', certData.subject, certData.issuer, certData.samlEntity);
+        var existingCert = allSamlCerts[`${certData.subject}|${certData.issuer}|${certData.serial}`];
+        existingCert.samlEntity.push({ id: `${e.entityId}`, use: `${mc.use}`, type: `SAML ${e.location} ${e.roles[0]}` }); // append entity to existing cert entry for reporting
+      } else {
+        log.info('Adding cert with subject {} and issuer {} for entity {} to allSamlCerts', certData.subject, certData.issuer, certData.samlEntity);
+        allSamlCerts[`${certData.subject}|${certData.issuer}|${certData.serial}`] = certData;
       }
     }
   }
+  log.warn('certs found in SAML metadata for all entities: {}', Object.keys(allSamlCerts).length);
 
   // Step 5: Send notification if criteria are met
+
   if (reportableCertsFound || !config.onlySendEmailIfActionNeeded) {
-    sendNotificationEmail(sidMapping);
+    sendNotificationEmail(allSamlCerts);
   } else {
     log.info('No reportable certs found and onlySendEmailIfActionNeeded is true, skipping sending notification email');
   }
@@ -693,6 +634,6 @@ function getFullSecretIdsForSamlEntity(entitySecretId, entity) {
   // Return the evaluation context
   return {
     status: 'done',
-    result: sidMapping
+    result: allSamlCerts
   };
 })();
