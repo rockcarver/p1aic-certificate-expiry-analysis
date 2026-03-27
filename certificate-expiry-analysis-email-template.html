@@ -132,9 +132,11 @@
           <tr class="expired-bg">
             {{else if expiringSoon}}
           </tr>
+
           <tr class="warn-bg">
             {{else}}
           </tr>
+
           <tr>
             {{/if}}
             <td>{{#if expired}}Expired{{else if expiringSoon}}Expiring in {{expiryDays}} days{{else}}OK{{/if}}</td>
@@ -143,7 +145,28 @@
             <td>{{issuer}}</td>
             <td>{{expires}}</td>
             <td>{{serial}}</td>
-            <td>{{samlEntities}}</td>
+            <td>
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>H/P</th>
+                    <th>Type</th>
+                    <th>Use</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{#each samlEntities}}
+                  <tr>
+                    <td>{{id}}</td>
+                    <td>{{hosted}}</td>
+                    <td>{{type}}</td>
+                    <td>{{use}}</td>
+                  </tr>
+                  {{/each}}
+                </tbody>
+              </table>
+            </td>
           </tr>
           {{/each}}
         </tbody>

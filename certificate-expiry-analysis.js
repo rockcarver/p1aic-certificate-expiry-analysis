@@ -321,7 +321,8 @@ function sendNotificationEmail(allCerts) {
         issuer: cert.issuer,
         serial: cert.serial,
         expires: cert.notAfter,
-        samlEntities: cert.samlEntity ? cert.samlEntity.map((e) => `[${e.id} ${e.type} (${e.use})]`).join('; ') : 'N/A'
+        samlEntities: cert.samlEntities
+        // samlEntities: cert.samlEntity ? cert.samlEntity.map((e) => `[${e.id} ${e.type} (${e.use})]`) : 'N/A'
       };
       log.debug('row: {}', row);
       rows.push(row);
@@ -608,13 +609,13 @@ function getEsvSecretList(token) {
         log.info('cert "{}": cert OK', certData.subject);
       }
 
-      certData.samlEntity = [{ id: `${e.entityId}`, use: `${mc.use}`, type: `SAML ${e.location} ${e.roles[0]}` }];
+      certData.samlEntities = [{ id: `${e.entityId}`, use: `${mc.use}`, type: `SAML ${e.location} ${e.roles[0]}` }];
       if (allSamlCerts[`${certData.subject}|${certData.issuer}|${certData.serial}`]) {
-        log.info('Found duplicate cert for subject {} and issuer {}, appending entity {} to existing entry', certData.subject, certData.issuer, certData.samlEntity);
+        log.info('Found duplicate cert for subject {} and issuer {}, appending entity {} to existing entry', certData.subject, certData.issuer, certData.samlEntities[0].id);
         var existingCert = allSamlCerts[`${certData.subject}|${certData.issuer}|${certData.serial}`];
-        existingCert.samlEntity.push({ id: `${e.entityId}`, use: `${mc.use}`, type: `SAML ${e.location} ${e.roles[0]}` }); // append entity to existing cert entry for reporting
+        existingCert.samlEntities.push({ id: e.entityId, use: mc.use, hosted: e.location, type: `${e.roles[0] == 'identityProvider'?'IdP':'SP'}` }); // append entity to existing cert entry for reporting
       } else {
-        log.info('Adding cert with subject {} and issuer {} for entity {} to allSamlCerts', certData.subject, certData.issuer, certData.samlEntity);
+        log.info('Adding cert with subject {} and issuer {} for entity {} to allSamlCerts', certData.subject, certData.issuer, certData.samlEntities[0].id);
         allSamlCerts[`${certData.subject}|${certData.issuer}|${certData.serial}`] = certData;
       }
     }
